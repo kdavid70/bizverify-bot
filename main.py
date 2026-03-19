@@ -10,7 +10,6 @@ import urllib.error
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
 
-# Simple Telegram API wrapper
 class SimpleBot:
     def __init__(self, token):
         self.token = token
@@ -30,6 +29,9 @@ class SimpleBot:
             
             with urllib.request.urlopen(req, timeout=30) as response:
                 return json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
+            print(f"HTTP Error: {e.code} - {e.reason}")
+            return None
         except Exception as e:
             print(f"Request error: {e}")
             return None
@@ -63,13 +65,11 @@ class SimpleBot:
             'parse_mode': 'Markdown'
         })
 
-# Google Places search
 def search_places(query, location):
     if not GOOGLE_API_KEY:
         return mock_results(query, location)
     
     try:
-        import urllib.request
         url = "https://places.googleapis.com/v1/places:searchText"
         data = json.dumps({
             "textQuery": f"{query} in {location}",
@@ -105,6 +105,9 @@ def search_places(query, location):
                     })
             return results if results else mock_results(query, location)
             
+    except urllib.error.HTTPError as e:
+        print(f"Google API HTTP Error: {e.code}")
+        return mock_results(query, location)
     except Exception as e:
         print(f"Search error: {e}")
         return mock_results(query, location)
@@ -140,7 +143,6 @@ def verify_numbers(businesses):
         b['verified'] = True
     return businesses
 
-# Message templates
 WELCOME = """👋 Hello {first_name}!
 
 I'm BizVerify — I find service providers that actually answer.
@@ -182,14 +184,12 @@ def main():
                     bot.send_message(chat_id, WELCOME.format(first_name=first_name))
                     continue
                 
-                # Parse and search
                 parsed = parse_query(text)
                 
                 if not parsed['category']:
                     bot.send_message(chat_id, "❓ Try: 'Plumber Lekki' or 'Electrician Yaba'")
                     continue
                 
-                # Send searching message
                 searching_text = f"🔍 Searching for {parsed['category']} in {parsed['location']}..."
                 result_msg = bot.send_message(chat_id, searching_text)
                 
@@ -199,11 +199,9 @@ def main():
                 message_id = result_msg['result']['message_id']
                 
                 try:
-                    # Search
                     businesses = search_places(parsed['category'], parsed['location'])
                     verified = verify_numbers(businesses)
                     
-                    # Format response
                     lines = [f"🔍 *{parsed['category'].title()} in {parsed['location']}*\n"]
                     for i, biz in enumerate(verified, 1):
                         lines.append(f"{i}. ✅ *{biz['name']}*")
