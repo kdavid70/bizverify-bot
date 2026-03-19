@@ -1,33 +1,34 @@
-import logging
 import os
 import re
-import asyncio
-from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
+import time
 import httpx
 
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-
+# Config
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
 
+# Import telebot
+import telebot
+from telebot import types
+
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+
+# Messages
 WELCOME = '''👋 Hello {first_name}!
 
 I'm *BizVerify* — I find service providers that actually answer.
 
 🔍 *How it works:*
-1. Tell me what you need: "Plumber in Lekki"
-2. I check the numbers *right now*
-3. I send you only the ones that work
+1\\. Tell me what you need: "Plumber in Lekki"
+2\\. I check the numbers *right now*
+3\\. I send you only the ones that work
 
 *Try it:* Type "Electrician Yaba"'''
 
 SEARCHING = "🔍 Searching for {category} in {location}..."
 
-async def search_places(query: str, location: str):
+def search_places(query: str, location: str):
+    """Search using Google Places API (New)"""
     if not GOOGLE_API_KEY:
         return _mock_results(query, location)
     
@@ -39,34 +40,34 @@ async def search_places(query: str, location: str):
         }
         data = {"textQuery": f"{query} in {location}", "regionCode": "NG"}
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://places.googleapis.com/v1/places:searchText",
-                headers=headers,
-                json=data
-            )
-            result = resp.json()
-            
-            if "places" not in result:
-                return _mock_results(query, location)
-            
-            results = []
-            for place in result.get("places", [])[:2]:
-                phone = place.get("internationalPhoneNumber", "")
-                if phone:
-                    digits = re.sub(r'\D', '', phone)
-                    if digits.startswith('234'):
-                        phone = '+' + digits
-                    elif digits.startswith('0'):
-                        phone = '+234' + digits[1:]
-                    
-                    results.append({
-                        "name": place.get("displayName", {}).get("text", "Unknown"),
-                        "phone": phone,
-                        "address": place.get("formattedAddress", "")[:50],
-                    })
-            return results if results else _mock_results(query, location)
-            
+        response = httpx.post(
+            "https://places.googleapis.com/v1/places:searchText",
+            headers=headers,
+            json=data,
+            timeout=30.0
+        )
+        result = response.json()
+        
+        if "places" not in result:
+            return _mock_results(query, location)
+        
+        results = []
+        for place in result.get("places", [])[:2]:
+            phone = place.get("internationalPhoneNumber", "")
+            if phone:
+                digits = re.sub(r'\D', '', phone)
+                if digits.startswith('234'):
+                    phone = '+' + digits
+                elif digits.startswith('0'):
+                    phone = '+234' + digits[1:]
+                
+                results.append({
+                    "name": place.get("displayName", {}).get("text", "Unknown"),
+                    "phone": phone,
+                    "address": place.get("formattedAddress", "")[:50],
+                })
+        return results if results else _mock_results(query, location)
+        
     except Exception as e:
         print(f"Error: {e}")
         return _mock_results(query, location)
@@ -98,59 +99,72 @@ def parse_query(text: str):
     loc = next((l.title() for l in locs if l in text), 'Lagos')
     return {'category': cat, 'location': loc}
 
-async def verify_numbers(businesses: list):
-    await asyncio.sleep(2)
+def verify_numbers(businesses: list):
+    """Simulate phone verification"""
+    time.sleep(2)
     for b in businesses:
         b['verified'] = True
     return businesses
 
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text(
-        WELCOME.format(first_name=update.effective_user.first_name or "there"),
-        parse_mode='Markdown'
+@bot.message_handler(commands=['start'])
+def start(message):
+    """Handle /start"""
+    bot.send_message(
+        message.chat.id,
+        WELCOME.format(first_name=message.from_user.first_name or "there"),
+        parse_mode='MarkdownV2'
     )
 
-def handle_search(update: Update, context: CallbackContext):
-    text = update.message.text
+@bot.message_handler(func=lambda message: True)
+def handle_search(message):
+    """Handle all text messages"""
+    text = message.text
     parsed = parse_query(text)
     
     if not parsed['category']:
-        update.message.reply_text("❓ Try: 'Plumber Lekki' or 'Electrician Yaba'")
+        bot.send_message(message.chat.id, "❓ Try: 'Plumber Lekki' or 'Electrician Yaba'")
         return
     
-    msg = update.message.reply_text(SEARCHING.format(**parsed))
+    # Send searching message
+    msg = bot.send_message(message.chat.id, SEARCHING.format(**parsed))
     
     try:
-        # Run async search in sync context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        businesses = loop.run_until_complete(search_places(parsed['category'], parsed['location']))
-        verified = loop.run_until_complete(verify_numbers(businesses))
-        loop.close()
+        # Search
+        businesses = search_places(parsed['category'], parsed['location'])
         
+        # Verify
+        verified = verify_numbers(businesses)
+        
+        # Format response
         lines = [f"🔍 *{parsed['category'].title()} in {parsed['location']}*\n"]
+        
         for i, biz in enumerate(verified, 1):
             lines.append(f"{i}. ✅ *{biz['name']}*")
             lines.append(f"   📞 `{biz['phone']}`")
             lines.append(f"   📍 _{biz['address']}_")
             lines.append(f"   _Verified just now_\n")
         
-        msg.edit_text('\n'.join(lines), parse_mode='Markdown')
+        response = '\n'.join(lines)
+        
+        # Edit message with results
+        bot.edit_message_text(
+            response,
+            chat_id=message.chat.id,
+            message_id=msg.message_id,
+            parse_mode='Markdown'
+        )
+        
     except Exception as e:
-        msg.edit_text(f"😕 Error: {str(e)}")
+        bot.edit_message_text(
+            f"😕 Error: {str(e)}",
+            chat_id=message.chat.id,
+            message_id=msg.message_id
+        )
 
 def main():
     print("🚀 Starting BizVerify bot...")
-    
-    updater = Updater(TELEGRAM_TOKEN)
-    dispatcher = updater.dispatcher
-    
-    dispatcher.add_handler(CommandHandler("start", start))
-    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    
-    print("Bot started! Polling...")
-    updater.start_polling()
-    updater.idle()
+    print("Bot started! Polling for messages...")
+    bot.polling()
 
 if __name__ == "__main__":
     main()
