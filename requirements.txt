@@ -1,2 +1,1 @@
-pyTelegramBotAPI==4.15.4
-httpx==0.25.2
+# No external dependencies needed
