@@ -1,5 +1,5 @@
 python-telegram-bot==20.7
 python-dotenv==1.0.0
-httpx==0.26.0
+httpx==0.25.2
 googlemaps==4.10.0
 twilio==8.12.0
