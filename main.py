@@ -3,7 +3,7 @@ import os
 import re
 import asyncio
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Updater, CommandHandler, MessageHandler, filters, CallbackContext
 import httpx
 
 logging.basicConfig(
@@ -104,25 +104,29 @@ async def verify_numbers(businesses: list):
         b['verified'] = True
     return businesses
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text(
         WELCOME.format(first_name=update.effective_user.first_name or "there"),
         parse_mode='Markdown'
     )
 
-async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def handle_search(update: Update, context: CallbackContext):
     text = update.message.text
     parsed = parse_query(text)
     
     if not parsed['category']:
-        await update.message.reply_text("❓ Try: 'Plumber Lekki' or 'Electrician Yaba'")
+        update.message.reply_text("❓ Try: 'Plumber Lekki' or 'Electrician Yaba'")
         return
     
-    msg = await update.message.reply_text(SEARCHING.format(**parsed))
+    msg = update.message.reply_text(SEARCHING.format(**parsed))
     
     try:
-        businesses = await search_places(parsed['category'], parsed['location'])
-        verified = await verify_numbers(businesses)
+        # Run async search in sync context
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        businesses = loop.run_until_complete(search_places(parsed['category'], parsed['location']))
+        verified = loop.run_until_complete(verify_numbers(businesses))
+        loop.close()
         
         lines = [f"🔍 *{parsed['category'].title()} in {parsed['location']}*\n"]
         for i, biz in enumerate(verified, 1):
@@ -131,17 +135,22 @@ async def handle_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines.append(f"   📍 _{biz['address']}_")
             lines.append(f"   _Verified just now_\n")
         
-        await msg.edit_text('\n'.join(lines), parse_mode='Markdown')
+        msg.edit_text('\n'.join(lines), parse_mode='Markdown')
     except Exception as e:
-        await msg.edit_text(f"😕 Error: {str(e)}")
+        msg.edit_text(f"😕 Error: {str(e)}")
 
 def main():
     print("🚀 Starting BizVerify bot...")
-    application = Application.builder().token(TELEGRAM_TOKEN).build()
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
-    print("Bot started!")
-    application.run_polling(drop_pending_updates=True)
+    
+    updater = Updater(TELEGRAM_TOKEN)
+    dispatcher = updater.dispatcher
+    
+    dispatcher.add_handler(CommandHandler("start", start))
+    dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_search))
+    
+    print("Bot started! Polling...")
+    updater.start_polling()
+    updater.idle()
 
 if __name__ == "__main__":
     main()
