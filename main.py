@@ -15,7 +15,8 @@ logging.basicConfig(
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
 
-WELCOME = """👋 Hello {first_name}!
+# Fixed welcome message using single quotes
+WELCOME = '''👋 Hello {first_name}!
 
 I'm *BizVerify* — I find service providers that actually answer.
 
@@ -24,7 +25,8 @@ I'm *BizVerify* — I find service providers that actually answer.
 2. I check the numbers *right now*
 3. I send you only the ones that work
 
-*Try it:* Type "Electrician Yaba""""
+*Try it:* Type "Electrician Yaba"'''
+
 SEARCHING = "🔍 Searching for {category} in {location}..."
 
 async def search_places(query: str, location: str):
@@ -167,3 +169,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
