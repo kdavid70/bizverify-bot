@@ -5,10 +5,19 @@ import time
 import json
 import urllib.request
 import urllib.error
+import threading
+from flask import Flask
 
 # Config
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_PLACES_API_KEY", "")
+
+# Flask app for Render health checks
+app = Flask(__name__)
+
+@app.route('/')
+def health():
+    return "Bot is running!", 200
 
 class SimpleBot:
     def __init__(self, token):
@@ -154,7 +163,7 @@ I'm BizVerify — I find service providers that actually answer.
 
 Try it: Type "Electrician Yaba" """
 
-def main():
+def run_bot():
     print("🚀 Starting BizVerify bot...")
     
     if not TELEGRAM_TOKEN:
@@ -223,5 +232,10 @@ def main():
             time.sleep(5)
 
 if __name__ == "__main__":
-    main()
-
+    # Start bot in background thread
+    bot_thread = threading.Thread(target=run_bot, daemon=True)
+    bot_thread.start()
+    
+    # Start Flask server (Render requires this)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port)
